@@ -29,7 +29,7 @@ const char* mqttUser = MQTT_USER;
 const char* mqttPassword = MQTT_PASSWORD;
 
 // Global
-unsigned long delayTime;
+unsigned long updateInterval = 2000;
 #define SEALEVELPRESSURE_HPA (1019.8)
 
 WiFiClient espClient;
@@ -83,8 +83,7 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(clientId.c_str(), mqttUser, mqttPassword,topic.c_str(), 0, true, "offline")) {
       Serial.println("connected");
-      // Once connected, publish an announcement...
-      
+      // Once connected, publish an announcement...      
       client.publish(topic.c_str(), "online", true);
       // ... and resubscribe
       //client.subscribe("inTopic");
@@ -109,19 +108,12 @@ void setup() {
   client.setCallback(callback);
 
   //Sensors I2C Comms
-  Serial.println("Adafruit SI1145 test");
-  if (! uv.begin()) {
-    Serial.println("Didn't find Si1145");
-    while (1);
-  }
-  // Initialize light sensor bus. Might need to init Wire.begin()?
+  uv.begin();
   lightMeter.begin(); //GY-302
   bme.begin(0x76); // BME280
   uva.begin(VEML6070_2_T);  //VEML6070 pass in the integration time constant
 
   Serial.println("ALL OK!");
-
-  delayTime = 2000;
 }
 
 void loop() {
@@ -133,33 +125,27 @@ void loop() {
   }
   client.loop();
 
-  Serial.println("######## Measure Cycle ##########################");
-
   // Sensor param initialization 
   float lux, vis, ir, uvindex, temp, pres, alti, humi, rawuv;
 
   getLUX(lux);
-  //logLUX(lux);
   getAdaUV(vis, ir, uvindex);
-  //logAdafruitUV(vis, ir, uvindex);
   getAtmo(temp, pres, alti, humi);
-  //logAtmo(temp, pres, alti, humi);
   getRawUV(rawuv);
 
-  DynamicJsonDocument doc = publishPayload(lux, vis, ir, uvindex, temp, pres, alti, humi, rawuv);
+  DynamicJsonDocument doc = preparePayload(lux, vis, ir, uvindex, temp, pres, alti, humi, rawuv);
 
   Serial.print("Publish message: ");
   char buffer[512];
   size_t n = serializeJson(doc, buffer);
-  
   String topic = clientId + "/data";
   Serial.print(topic); Serial.print(": "); Serial.println(buffer);
   client.publish(topic.c_str(), buffer, n);
   
-  delay(delayTime);
+  delay(updateInterval);
 }
 
-DynamicJsonDocument publishPayload(float luxval, float vis, float ir, float uvindex, float temp, float pres, float alti, float humi, float rawuv) {
+DynamicJsonDocument preparePayload(float luxval, float vis, float ir, float uvindex, float temp, float pres, float alti, float humi, float rawuv) {
   const size_t capacity = 2*JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(5);
   //const size_t capacity = 512;
   DynamicJsonDocument doc(capacity);
@@ -195,27 +181,11 @@ void getAtmo(float &temp, float &pres, float &alti, float &humi) {
   humi = bme.readHumidity();
 }
 
-void logAtmo(float temp, float pres, float alti, float humi) {
-  Serial.println("===== Atmospheric Data =====");
-  Serial.print(F("Temperature: ")); Serial.print(temp); Serial.print(" *C");
-  Serial.print(F(" / Pressure: ")); Serial.print(pres); Serial.print(" Pa");
-  Serial.print(F(" / Altitude: ")); Serial.print(alti); Serial.print(" m");
-  Serial.print(F(" / Humidity: ")); Serial.print(humi); Serial.print(" %");
-
-  Serial.println();
-}
 
 void getLUX(float &lux) {
   // GY-302
   // Default I2C addr: 0x23
   lux = lightMeter.readLightLevel();
-}
-
-void logLUX(float lux) {
-  Serial.println("=====LUX=====");
-  Serial.print("Light: ");
-  Serial.print(lux);
-  Serial.println(" lx");
 }
 
 void getAdaUV(float &vis, float &ir, float &uvindex) {
@@ -225,15 +195,4 @@ void getAdaUV(float &vis, float &ir, float &uvindex) {
   ir = uv.readIR();
   uvindex = uv.readUV();
   uvindex /= 100.0;
-}
-
-void logAdafruitUV(float vis, float ir, float uv) {
-  Serial.println("=====ADA VIS/IR/UV=====");
-  Serial.print("Vis: "); Serial.print(vis);
-  Serial.print(" / IR: "); Serial.print(ir);
-
-  // Uncomment if you have an IR LED attached to LED pin!
-  //Serial.print("Prox: "); Serial.println(uv.readProx());
-
-  Serial.print(" / UV: ");  Serial.println(uv);
 }
